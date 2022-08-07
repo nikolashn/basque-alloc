@@ -1,0 +1,22 @@
+include "alloc.ba";
+
+# Allocates and then prints out squares
+
+i64 count = 1000;
+i64* squares = Alloc($i64, count);
+
+i64 i = 0;
+while i < count iter ++i {
+	[squares,i] = i * i;
+}
+
+i = 0;
+while i < count iter ++i {
+	if i {
+		if i % 10, ",\t";
+		else, ",\n";
+	}
+	write [squares,i];
+}
+"\n";
+
