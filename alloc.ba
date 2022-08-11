@@ -31,7 +31,7 @@ void* Alloc(u64 itemSize, u64 itemCount = 1) {
 		return base + _HeaderSz;
 	}
 	else {
-		u64 newBlockSize = (size + _BrkAlign - 1u) & ~(_BrkAlign - 1u);
+		u64 newSize = (size + _BrkAlign - 1u) & ~(_BrkAlign - 1u);
 
 		if !_BreakPtr {
 			_FirstBasePtr = Brk();
@@ -43,38 +43,38 @@ void* Alloc(u64 itemSize, u64 itemCount = 1) {
 		}
 		else {
 			while [_BasePtr~u64*,0] { # next block has size?
-				u64 oldBlockSize = [_BasePtr~u64*,0];
+				u64 blockSize = [_BasePtr~u64*,0];
 				# Check if next block is unallocated and has enough space
-				if ![_BasePtr~u64*,1] && oldBlockSize >= newBlockSize {
-					u64 extraSize = oldBlockSize - newBlockSize - _Overhead;
-					# Split the old block in two if there is some extra space
-					if extraSize >= _BrkAlign {
-						void* footer = 
-							(_BasePtr + _HeaderSz + newBlockSize)~void*;
-						[_BasePtr~u64*,0] = newBlockSize;
-						[footer~u64*,0] = newBlockSize;
+				if ![_BasePtr~u64*,1] && blockSize >= newSize {
+					[_BasePtr~u64*,0] = newSize;
+					[_BasePtr~u64*,1] = 1;
+					void* footer = (_BasePtr + _HeaderSz + newSize)~void*;
+					[footer~u64*,0] = newSize;
 
+					# Split the old block in two if there is some extra space
+					u64 extraSize = blockSize - newSize - _Overhead;
+					if extraSize >= _BrkAlign {
 						void* split = (footer + _FooterSz)~void*;
 						footer = (split + _HeaderSz + extraSize)~void*;
 						[split~u64*,0] = extraSize;
 						[split~u64*,1] = 0;
 						[footer~u64*,0] = extraSize;
 					}
-					[_BasePtr~u64*,1] = 1;
+
 					return _BasePtr + _HeaderSz;
 				}
-				_BasePtr += (_Overhead + oldBlockSize)~void*;
+				_BasePtr += (_Overhead + blockSize)~void*;
 			}
 		}
 
 		# No space found, so extend
 		void* ptr = (_BreakPtr - _FooterSz)~void*;
-		[ptr~u64*,-2] = newBlockSize;
+		[ptr~u64*,-2] = newSize;
 		[ptr~u64*,-1] = 1;
-		_BreakPtr = Brk(_BreakPtr + newBlockSize + _Overhead);
+		_BreakPtr = Brk(_BreakPtr + newSize + _Overhead);
 		# Program break didn't change, i.e. didn't allocate
 		if _BreakPtr == ptr + _FooterSz, return 0;
-		[_BreakPtr~u64*,-6] = newBlockSize;
+		[_BreakPtr~u64*,-6] = newSize;
 		[_BreakPtr~u64*,-4] = 0;
 		[_BreakPtr~u64*,-3] = 1;
 		_BasePtr = (_BreakPtr - _Overhead)~void*;
@@ -92,28 +92,27 @@ void Free(void* ptr) {
 		MUnmap(base, size + _Overhead);
 	}
 	else {
-		if !_BreakPtr || base <= _FirstBasePtr, return;
-
+		if !_BreakPtr, return;
 		if base < _BasePtr, _BasePtr = base;
 		
 		# Coalesce
-		u64 prevSize = [base~u64*,-2];
-		void* prevBase = (base - prevSize - _Overhead)~void*;
-		bool isPrevAllocated = [prevBase~u64*,1];
+
+		u64 prevSize = 0;
+		void* prevBase = 0;
+		bool isPrevAllocated = 1;
+		if base > _FirstBasePtr {
+			prevSize = [base~u64*,-2];
+			prevBase = (base - prevSize - _Overhead)~void*;
+			isPrevAllocated = [prevBase~u64*,1]; # TODO: fix
+		}
+
 		void* nextBase = (base + size + _Overhead)~void*;
 		bool isNextAllocated = 1;
 		if nextBase < _BreakPtr - _Overhead,
 			isNextAllocated = [nextBase~u64*,1];
 
 		if isPrevAllocated {
-			if isNextAllocated {
-				size += [prevBase~u64*,0] + [nextBase~u64*,0] + _Overhead;
-				void* footer = (prevBase + size + _HeaderSz)~void*;
-				[prevBase~u64*,0] = size;
-				[footer~u64*,0] = size;
-				if prevBase < _BasePtr, _BasePtr = prevBase;
-			}
-			else {
+			if !isNextAllocated {
 				size += [nextBase~u64*,0] + _Overhead;
 				void* footer = (base + size + _HeaderSz)~void*;
 				[base~u64*,0] = size;
@@ -122,6 +121,13 @@ void Free(void* ptr) {
 		}
 		elif isNextAllocated {
 			size += [prevBase~u64*,0] + _Overhead;
+			void* footer = (prevBase + size + _HeaderSz)~void*;
+			[prevBase~u64*,0] = size;
+			[footer~u64*,0] = size;
+			if prevBase < _BasePtr, _BasePtr = prevBase;
+		}
+		else {
+			size += [prevBase~u64*,0] + [nextBase~u64*,0] + _Overhead;
 			void* footer = (prevBase + size + _HeaderSz)~void*;
 			[prevBase~u64*,0] = size;
 			[footer~u64*,0] = size;
@@ -151,8 +157,66 @@ void* CAlloc(u64 itemSize, u64 itemCount = 1) {
 	return ptr;
 }
 
+# TODO: this one makes a lot of calls, so it can likely be done more efficiently
 void* Realloc(void* ptr, u64 itemSize, u64 itemCount = 1) {
-	# TODO
-	return 0;
+	u64 oldSize = [ptr~u64*,-2];
+	bool isFreed = 0;
+	
+	if oldSize + _Overhead >= _MMapThreshold {
+		MUnmap(ptr - _HeaderSz, oldSize + _Overhead);
+		isFreed = 1;
+	}
+
+	u64 size = itemCount * itemSize;
+	# TODO: Return 0 for overflow, in assembly this can be done by a flag check
+
+	u64 chunkAlignedSize = 
+		(_Overhead + size + _ChunkSize - 1u) & ~(_ChunkSize - 1u);
+	if !chunkAlignedSize, chunkAlignedSize = _BrkAlign;
+
+	if chunkAlignedSize >= _MMapThreshold {
+		if !isFreed, Free(ptr);
+		void* base = MMap(, chunkAlignedSize, 0x3, 0x22);
+		[base~u64*,0] = chunkAlignedSize - _Overhead;
+		[base~u64*,1] = 1; # allocation flag
+		# No need to set footer as memory is non-contiguous
+		return base + _HeaderSz;
+	}
+	else {
+		if !isFreed {
+			u64 newSize = (size + _BrkAlign - 1u) & ~(_BrkAlign - 1u);
+			void* base = (ptr - _HeaderSz)~void*;
+			void* nextBase = (base + oldSize + _Overhead)~void*;
+			bool isNextAllocated = 1;
+			if nextBase < _BreakPtr - _Overhead,
+				isNextAllocated = [nextBase~u64*,1];
+			
+			# If there is enough space to reallocate in place, do it
+			if !isNextAllocated {
+				u64 nextSize = [nextBase~u64*,0];
+				if _BasePtr == nextBase, _BasePtr = _FirstBasePtr; # ouch
+				if newSize <= nextSize + oldSize + _Overhead {
+					[base~u64*,0] = newSize;
+					[base~u64*,1] = 1;
+					void* footer = (base + _HeaderSz + newSize)~void*;
+					[footer~u64*,0] = newSize;
+
+					# Split the old block in two if there is some extra space
+					u64 extraSize = nextSize + oldSize - newSize;
+					if extraSize >= _BrkAlign {
+						void* split = (footer + _FooterSz)~void*;
+						footer = (split + _HeaderSz + extraSize)~void*;
+						[split~u64*,0] = extraSize;
+						[split~u64*,1] = 0;
+						[footer~u64*,0] = extraSize;
+					}
+					return ptr;
+				}
+			}
+			Free(ptr);
+		}
+		void* p = Alloc(itemSize, itemCount);
+		return p;
+	}
 }
 

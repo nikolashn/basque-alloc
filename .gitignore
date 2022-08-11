@@ -1,4 +1,3 @@
 alloc
-test
-calloctest
-squares
+tests/*
+!tests/*.ba

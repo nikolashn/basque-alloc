@@ -16,8 +16,11 @@ void WritePtr(void* ptr) {
 }
 
 void WriteAllocInfo(void* ptr) {
+	u64 size = [ptr~u64*, -2];
 	"size: ";
-	write [ptr~u64*, -2]; 
+	write size; 
+	", footer: ";
+	write [(ptr + size)~u64*];
 	", allocated: ";
 	write [ptr~u64*, -1];
 	", address: ";
@@ -25,34 +28,58 @@ void WriteAllocInfo(void* ptr) {
 }
 
 u8* x = Alloc($u8, 100);
-"Alloc\n";
+"Alloc x\n";
 WriteAllocInfo(x);
 
 Free(x);
-"Free\n";
+"Free x\n";
 WriteAllocInfo(x);
 
 x = Alloc($u8, 1000);
-"Alloc\n";
+"Alloc x\n";
 WriteAllocInfo(x);
 
 Free(x);
-"Free\n";
+"Free x\n";
 WriteAllocInfo(x);
 
 x = Alloc($u8, 250);
-"Alloc\n";
+"Alloc x\n";
 WriteAllocInfo(x);
 
 Free(x);
-"Free\n";
+"Free x\n";
 WriteAllocInfo(x);
 
 x = Alloc($u8, 1000000);
-"Alloc\n";
+"Alloc x\n";
 WriteAllocInfo(x);
 
 Free(x);
-"Free\n";
-WriteAllocInfo(x); # segfaults because the memory is unmapped
+"Free x\n";
+#WriteAllocInfo(x); # segfaults because the memory is unmapped
+
+x = Alloc($u8, 200);
+"Alloc x\n";
+WriteAllocInfo(x);
+
+u8* y = Alloc($u8, 300);
+"Alloc y\n";
+WriteAllocInfo(y);
+
+Free(y);
+"Free y\n";
+WriteAllocInfo(y);
+
+x = Realloc(x, $u8, 400);
+"Realloc x\n";
+WriteAllocInfo(x);
+
+x = Realloc(x, $u8, 1000000);
+"Realloc x\n";
+WriteAllocInfo(x);
+
+Free(x);
+"Free x\n";
+#WriteAllocInfo(x); # segfaults because the memory is unmapped
 
