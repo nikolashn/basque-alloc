@@ -1,7 +1,7 @@
 include "sys";
 
 u64 _MMapThreshold = 0x20000;
-u64 _ChunkSize = 0x4000; # 16 kB, Arbitrary
+u64 _ChunkSize = 0x4000;
 u64 _BrkAlign = 16;
 
 void* _BreakPtr = 0;
@@ -12,6 +12,8 @@ void* _BasePtr = 0;
 u64 _HeaderSz = 2u * $u64; # header: { size, allocation flag }
 u64 _FooterSz = 2u * $u64; # footer: { size, [padding] }
 u64 _Overhead = _HeaderSz + _FooterSz;
+
+u64 _DevZeroThreshold = 0x2000;
 
 void* Alloc(u64 itemSize, u64 itemCount = 1) {
 	u64 size = itemCount * itemSize;
@@ -129,8 +131,24 @@ void Free(void* ptr) {
 }
 
 void* CAlloc(u64 itemSize, u64 itemCount = 1) {
-	# TODO
-	return 0;
+	void* ptr = Alloc(itemSize, itemCount);
+	if !ptr, return 0;
+
+	u64 size = [ptr~u64*,-2];
+
+	# MMap initializes memory to zero
+	if size + _Overhead < _MMapThreshold {
+		if size + _Overhead >= _DevZeroThreshold {
+			i64 fd = Open(&"/dev/zero", 0);
+			Read(ptr, size, fd);
+			Close(fd);
+		}
+		else {
+			MemSet(ptr, 0, size);
+		}
+	}
+
+	return ptr;
 }
 
 void* Realloc(void* ptr, u64 itemSize, u64 itemCount = 1) {

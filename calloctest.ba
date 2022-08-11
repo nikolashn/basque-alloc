@@ -1,0 +1,23 @@
+include "alloc.ba";
+
+u64 count = 1_000;
+u64 size = count * $i64;
+i64* ptr = Alloc(size);
+MemSet(ptr, 5, size);
+Free(ptr);
+ptr = CAlloc(size);
+
+u64 i = 0;
+while i < count iter ++i {
+	if [ptr,i] != 0 {
+		"Oops, there's a ";
+		write [ptr,i];
+		" in the memory area.\n";
+		exit 1;
+	}
+}
+
+Free(ptr);
+
+"Absolutely zero'd.\n";
+
