@@ -16,7 +16,7 @@ while i < count iter ++i {
 		if i % 10, ",\t";
 		else, ",\n";
 	}
-	write [squares,i];
+	f"%i{[squares,i]}";
 }
 "\n";
 

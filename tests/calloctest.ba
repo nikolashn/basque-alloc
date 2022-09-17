@@ -10,9 +10,7 @@ ptr = CAlloc(size);
 u64 i = 0;
 while i < count iter ++i {
 	if [ptr,i] != 0 {
-		"Oops, there's a ";
-		write [ptr,i];
-		" in the memory area.\n";
+		f"Oops, there's a %i{[ptr,i]} in the memory area.\n";
 		exit 1;
 	}
 }
