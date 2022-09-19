@@ -1,5 +1,7 @@
 include "sys";
 
+# TODO: make variables static
+
 u64 _MMapThreshold = 0x20000;
 u64 _ChunkSize = 0x4000;
 u64 _BrkAlign = 16;
@@ -103,7 +105,7 @@ void Free(void* ptr) {
 		if base > _FirstBasePtr {
 			prevSize = [base~u64*,-2];
 			prevBase = (base - prevSize - _Overhead)~void*;
-			isPrevAllocated = [prevBase~u64*,1]; # TODO: fix
+			isPrevAllocated = [prevBase~u64*,1];
 		}
 
 		void* nextBase = (base + size + _Overhead)~void*;
